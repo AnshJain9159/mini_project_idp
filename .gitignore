@@ -11,3 +11,12 @@ node_modules/
 models/
 .env
 idp/sample_medical_report.txt
+idp/PDF_PARSING_README.md
+idp/ENHANCED_MODEL_README.md
+idp/visualizations/performance_comparison.png
+idp/visualizations/precision_recall_curves.png
+idp/visualizations/roc_curves_comparison.png
+idp/src/enhanced_evaluate.py
+idp/src/enhanced_main.py
+idp/src/enhanced_train.py
+idp/app copy.py
