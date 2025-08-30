@@ -10,3 +10,4 @@ node_modules/
 .env.production
 models/
 .env
+idp/sample_medical_report.txt
