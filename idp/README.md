@@ -89,6 +89,28 @@ pip install -r requirements.txt
 
 Ensure that the diabetes.csv dataset is placed inside the `data/` directory.
 
+### 5. Set Up Environment Variables
+
+The app uses environment variables for API keys. You have two options to set up your `.env` file:
+
+#### Option A: Use the Setup Script (Recommended)
+```bash
+python setup_env.py
+```
+This interactive script will securely prompt you for your Groq API key and create the `.env` file.
+
+#### Option B: Manual Setup
+Create a `.env` file in the project root with your Groq API key:
+
+```bash
+# Create .env file
+echo "GROQ_API_KEY=your_actual_groq_api_key_here" > .env
+```
+
+**Important**: Replace `your_actual_groq_api_key_here` with your real Groq API key. You can get one from [Groq's website](https://console.groq.com/).
+
+**Note**: The `.env` file should never be committed to version control. It's already included in `.gitignore`.
+
 ## ⚙️ Usage
 
 There are two main ways to use this project: running the full training pipeline or launching the interactive web app.
