@@ -10,13 +10,9 @@ import re
 from groq import Groq
 from dotenv import load_dotenv
 import PyPDF2
-import io
 
-# Load environment variables
 load_dotenv()
 
-# --- Page Configuration ---
-# Must be the first Streamlit command
 st.set_page_config(
     page_title="Interpretable Diabetes Prediction",
     page_icon="🩺",
@@ -38,7 +34,6 @@ def parse_medical_report_pdf(pdf_file):
         for page in pdf_reader.pages:
             text_content += page.extract_text()
         
-        # Extract common diabetes-related values using regex patterns
         extracted_data = {}
         
         # Glucose patterns (mg/dL, mmol/L)
@@ -208,9 +203,10 @@ def analyze_medical_report_groq(extracted_data, raw_text, feature_names):
                 {"role": "system", "content": "You are a medical professional analyzing diabetes test reports."},
                 {"role": "user", "content": prompt},
             ],
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             temperature=0.3,
             max_tokens=400,
+            
         )
         return chat_completion.choices[0].message.content
 
@@ -261,7 +257,7 @@ def generate_medical_explanation_groq(shap_values, feature_names, user_data):
                 {"role": "system", "content": "You are a helpful medical assistant providing clear explanations."},
                 {"role": "user", "content": prompt},
             ],
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             temperature=0.5,
             max_tokens=200,
         )
@@ -468,11 +464,7 @@ with tab2:
                             ordered_data[feature] = extracted_data[feature]
                         user_data = pd.DataFrame([ordered_data])
                         
-                        # Debug: Show the ordered data
-                        # st.write("🔍 **Debug Info:** Feature order in DataFrame:")
-                        # st.write(list(user_data.columns))
                         
-                        # Scale data and make predictions
                         try:
                             user_data_scaled = scaler.transform(user_data)
                             prediction_proba = model.predict_proba(user_data_scaled)

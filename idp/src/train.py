@@ -56,7 +56,7 @@ def train_model():
     xgb = XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42)
     
     grid_search = GridSearchCV(estimator=xgb, param_grid=param_grid, 
-                               cv=3, n_jobs=-1, verbose=2, scoring='accuracy')
+                               cv=3, n_jobs=1, verbose=2, scoring='accuracy')
     
     grid_search.fit(X_train_scaled, y_train)
     
