@@ -10,6 +10,15 @@ import re
 from groq import Groq
 from dotenv import load_dotenv
 import PyPDF2
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+
+try:
+    from preloader import initialize_preloader
+except ImportError:
+    def initialize_preloader():
+        pass
 
 load_dotenv()
 
@@ -19,6 +28,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+initialize_preloader()
+
+
 
 # --- Function to Parse Medical Report PDF ---
 def parse_medical_report_pdf(pdf_file):
