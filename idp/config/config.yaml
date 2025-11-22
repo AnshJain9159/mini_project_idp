@@ -1,0 +1,274 @@
+# Configuration for Interpretable Diabetes Predictor
+
+# Data Configuration
+data:
+  raw_data_path: "data/diabetes.csv"
+  processed_data_path: "data/processed"
+  test_size: 0.2
+  random_state: 42
+
+  # Data validation thresholds
+  validation:
+    glucose:
+      min: 0
+      max: 500
+      missing_indicator: 0
+    blood_pressure:
+      min: 0
+      max: 200
+      missing_indicator: 0
+    skin_thickness:
+      min: 0
+      max: 100
+      missing_indicator: 0
+    insulin:
+      min: 0
+      max: 900
+      missing_indicator: 0
+    bmi:
+      min: 0.0
+      max: 70.0
+      missing_indicator: 0.0
+    age:
+      min: 1
+      max: 120
+    pregnancies:
+      min: 0
+      max: 20
+    diabetes_pedigree_function:
+      min: 0.0
+      max: 2.5
+
+  # Preprocessing configuration
+  preprocessing:
+    handle_zeros_as_missing: true
+    imputation_strategy: "median"  # Options: mean, median, knn
+    outlier_detection: "iqr"  # Options: iqr, zscore, isolation_forest
+    outlier_threshold: 1.5  # For IQR method
+    scaling_method: "standard"  # Options: standard, minmax, robust
+
+  # Class imbalance handling
+  imbalance:
+    enabled: true
+    method: "smote"  # Options: smote, adasyn, random_oversample
+    sampling_strategy: "auto"
+
+# Model Configuration
+model:
+  # Model selection
+  model_type: "xgboost"  # Options: xgboost, ensemble, lightgbm
+
+  # XGBoost parameters
+  xgboost:
+    base_params:
+      use_label_encoder: false
+      eval_metric: "logloss"
+      random_state: 42
+      n_jobs: -1
+
+    # Hyperparameter search space
+    hyperparameter_tuning:
+      enabled: true
+      method: "grid_search"  # Options: grid_search, random_search, optuna
+      cv_folds: 5
+      n_iter: 50  # For random_search
+
+      param_grid:
+        max_depth: [3, 5, 7]                    # 3 options (reduced from 5)
+        learning_rate: [0.01, 0.1]              # 2 options (reduced from 4)
+        n_estimators: [100, 200]                # 2 options (reduced from 4)
+        subsample: [0.8, 1.0]                   # 2 options (reduced from 4)
+        colsample_bytree: [0.8, 1.0]            # 2 options (removed)
+        min_child_weight: [1, 5]                # 2 options (reduced from 3)
+
+  # Ensemble configuration
+  ensemble:
+    enabled: false
+    models: ["xgboost", "random_forest", "lightgbm"]
+    voting: "soft"  # Options: hard, soft
+    weights: [2, 1, 1]
+
+  # Model calibration
+  calibration:
+    enabled: true
+    method: "isotonic"  # Options: sigmoid, isotonic
+    cv_folds: 3
+
+# Evaluation Configuration
+evaluation:
+  metrics:
+    - "accuracy"
+    - "precision"
+    - "recall"
+    - "f1_score"
+    - "roc_auc"
+    - "average_precision"
+
+  # Visualization settings
+  visualizations:
+    confusion_matrix: true
+    roc_curve: true
+    precision_recall_curve: true
+    feature_importance: true
+    calibration_curve: true
+
+  # Threshold optimization
+  threshold_optimization:
+    enabled: true
+    metric: "f1_score"  # Metric to optimize
+
+# Interpretability Configuration
+interpretability:
+  shap:
+    enabled: true
+    cache_values: true
+    cache_dir: "models/shap_cache"
+    plot_types:
+      - "summary"
+      - "waterfall"
+      - "force"
+      - "dependence"
+    max_display_features: 10
+
+  lime:
+    enabled: true
+    num_features: 8
+    num_samples: 5000
+
+# PDF Extraction Configuration
+pdf_extraction:
+  max_file_size_mb: 10
+  enable_ocr: true
+  ocr_language: "eng"
+
+  # Confidence scoring
+  confidence_thresholds:
+    high: 0.9
+    medium: 0.7
+    low: 0.5
+
+  # Pattern matching
+  patterns:
+    confidence_boost_keywords:
+      - "result"
+      - "value"
+      - "level"
+
+# API Configuration
+api:
+  title: "Diabetes Prediction API"
+  version: "1.0.0"
+  description: "Interpretable AI-powered diabetes risk prediction"
+  host: "0.0.0.0"
+  port: 8000
+
+  # Rate limiting
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 60
+
+  # Security
+  cors:
+    enabled: true
+    allow_origins: ["*"]
+    allow_methods: ["GET", "POST"]
+
+# Database Configuration
+database:
+  type: "sqlite"  # Options: sqlite, postgresql, mysql
+  sqlite:
+    path: "data/predictions.db"
+
+  # Prediction history
+  history:
+    enabled: true
+    max_records: 10000
+    retention_days: 365
+
+# Streamlit App Configuration
+streamlit:
+  page_title: "Interpretable Diabetes Prediction"
+  page_icon: "🩺"
+  layout: "wide"
+
+  # Preloader settings
+  preloader:
+    enabled: false  # Disabled for better UX
+    duration: 1.5
+
+  # UI settings
+  ui:
+    show_debug_info: false
+    max_prediction_history: 50
+    enable_batch_prediction: true
+    enable_report_export: true
+
+# Logging Configuration
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "detailed"  # Options: simple, detailed, json
+
+  handlers:
+    console: true
+    file: true
+
+  file:
+    path: "logs/app.log"
+    max_bytes: 10485760  # 10MB
+    backup_count: 5
+
+# MLflow Configuration
+mlflow:
+  enabled: true
+  tracking_uri: "mlruns"
+  experiment_name: "diabetes_prediction"
+
+  # Auto-logging
+  autolog:
+    enabled: true
+    log_models: true
+    log_datasets: true
+
+# Model Monitoring
+monitoring:
+  drift_detection:
+    enabled: true
+    reference_data_path: "data/reference.csv"
+    report_path: "reports/drift_report.html"
+    threshold: 0.1
+
+  # Retraining triggers
+  retraining:
+    enabled: false
+    drift_threshold: 0.15
+    performance_threshold: 0.75
+    min_new_samples: 100
+
+# Risk Stratification
+risk_stratification:
+  enabled: true
+  thresholds:
+    low: 0.3
+    medium: 0.5
+    high: 0.7
+    critical: 0.9
+
+# Export Configuration
+export:
+  pdf_reports:
+    enabled: true
+    template: "professional"
+    include_shap: true
+    include_recommendations: true
+
+  batch_predictions:
+    enabled: true
+    max_batch_size: 1000
+    output_format: "csv"  # Options: csv, json, excel
+
+# Feature Engineering
+feature_engineering:
+  enabled: false  # Enable for advanced features
+  polynomial_features: false
+  interaction_features: false
+  polynomial_degree: 2
