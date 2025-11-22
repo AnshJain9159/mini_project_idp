@@ -75,12 +75,16 @@ model:
 
       param_grid:
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 7416082 (draining claude credits idk why)
         max_depth: [3, 5, 7]                    # 3 options (reduced from 5)
         learning_rate: [0.01, 0.1]              # 2 options (reduced from 4)
         n_estimators: [100, 200]                # 2 options (reduced from 4)
         subsample: [0.8, 1.0]                   # 2 options (reduced from 4)
         colsample_bytree: [0.8, 1.0]            # 2 options (removed)
         min_child_weight: [1, 5]                # 2 options (reduced from 3)
+<<<<<<< HEAD
 =======
         max_depth: [3, 4, 5, 6, 7]
         learning_rate: [0.01, 0.05, 0.1, 0.2]
@@ -92,6 +96,8 @@ model:
         reg_alpha: [0, 0.1, 0.5, 1.0]
         reg_lambda: [1, 1.5, 2.0]
 >>>>>>> 1bad849 (feat: comprehensive production-ready ML system enhancements)
+=======
+>>>>>>> 7416082 (draining claude credits idk why)
 
   # Ensemble configuration
   ensemble:
@@ -105,10 +111,14 @@ model:
     enabled: true
     method: "isotonic"  # Options: sigmoid, isotonic
 <<<<<<< HEAD
+<<<<<<< HEAD
     cv_folds: 3
 =======
     cv_folds: 5
 >>>>>>> 1bad849 (feat: comprehensive production-ready ML system enhancements)
+=======
+    cv_folds: 3
+>>>>>>> 7416082 (draining claude credits idk why)
 
 # Evaluation Configuration
 evaluation:
