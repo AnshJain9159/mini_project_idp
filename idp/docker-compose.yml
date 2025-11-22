@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # Streamlit Web Application
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: diabetes-predictor-streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./visualizations:/app/visualizations
+      - ./logs:/app/logs
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    command: streamlit run app.py --server.address 0.0.0.0 --server.port 8501
+    networks:
+      - diabetes-network
+    restart: unless-stopped
+
+  # FastAPI Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: diabetes-predictor-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - diabetes-network
+    restart: unless-stopped
+    depends_on:
+      - streamlit
+
+networks:
+  diabetes-network:
+    driver: bridge
+
+volumes:
+  data:
+  models:
+  visualizations:
+  logs:
