@@ -194,7 +194,7 @@ def train_model_enhanced(
                     estimator=xgb_model,
                     param_grid=param_grid,
                     cv=cv,
-                    n_jobs=-1,
+                    n_jobs=1,  # Avoid multiprocessing issues on Windows
                     verbose=1,
                     scoring='roc_auc'
                 )
@@ -206,7 +206,7 @@ def train_model_enhanced(
                     param_distributions=param_grid,
                     n_iter=n_iter,
                     cv=cv,
-                    n_jobs=-1,
+                    n_jobs=1,  # Avoid multiprocessing issues on Windows
                     verbose=1,
                     scoring='roc_auc',
                     random_state=random_state

@@ -9,9 +9,9 @@ from typing import Dict, Any, Optional, Tuple
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, average_precision_score, confusion_matrix,
-    classification_report, roc_curve, precision_recall_curve,
-    calibration_curve
+    classification_report, roc_curve, precision_recall_curve
 )
+from sklearn.calibration import calibration_curve
 import matplotlib.pyplot as plt
 import seaborn as sns
 
