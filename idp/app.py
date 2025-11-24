@@ -10,6 +10,7 @@ import re
 from groq import Groq
 from dotenv import load_dotenv
 import PyPDF2
+import json
 import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -36,8 +37,8 @@ initialize_preloader()
 # --- Function to Parse Medical Report PDF ---
 def parse_medical_report_pdf(pdf_file):
     """
-    Parses a medical report PDF and extracts relevant diabetes-related data.
-    Returns a dictionary with extracted values and the raw text for LLM analysis.
+    Parses a medical report PDF and extracts relevant diabetes-related data using Groq LLM.
+    Returns a dictionary with extracted values and the raw text.
     """
     try:
         # Read PDF content
@@ -47,121 +48,43 @@ def parse_medical_report_pdf(pdf_file):
         for page in pdf_reader.pages:
             text_content += page.extract_text()
         
-        extracted_data = {}
+        # Initialize Groq client
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            st.error("GROQ_API_KEY not found.")
+            return {}, text_content
+
+        client = Groq(api_key=api_key)
+
+        # Prompt for extraction
+        prompt = f"""
+        Extract the following medical values from the text below. Return ONLY a JSON object with keys:
+        "Pregnancies" (int), "Glucose" (float, mg/dL), "BloodPressure" (int, mm Hg), 
+        "SkinThickness" (float, mm), "Insulin" (float, mu U/ml), "BMI" (float), 
+        "DiabetesPedigreeFunction" (float), "Age" (int).
         
-        # Glucose patterns (mg/dL, mmol/L)
-        glucose_patterns = [
-            r'glucose[:\s]*(\d+(?:\.\d+)?)\s*(?:mg/dL|mg/dl|mg/dl|mmol/L|mmol/l)',
-            r'glucose[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?)\s*(?:mg/dL|mg/dl|mg/dl|mmol/L|mmol/l).*glucose',
-            r'glucose.*?(\d+(?:\.\d+)?)'
-        ]
+        If a value is not found, use null.
         
-        for pattern in glucose_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['Glucose'] = float(match.group(1))
-                break
+        Text:
+        {text_content[:4000]}
+        """
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a medical data extractor. Output JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
+
+        extracted_data = json.loads(completion.choices[0].message.content)
         
-        # Blood Pressure patterns
-        bp_patterns = [
-            r'blood\s*pressure[:\s]*(\d+)/(\d+)',
-            r'bp[:\s]*(\d+)/(\d+)',
-            r'(\d+)/(\d+)\s*(?:mm\s*Hg|mmHg)',
-            r'(\d+)/(\d+).*blood\s*pressure'
-        ]
+        # Clean up nulls
+        cleaned_data = {k: v for k, v in extracted_data.items() if v is not None}
         
-        for pattern in bp_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['BloodPressure'] = int(match.group(1))
-                break
-        
-        # BMI patterns
-        bmi_patterns = [
-            r'bmi[:\s]*(\d+(?:\.\d+)?)',
-            r'body\s*mass\s*index[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?).*bmi',
-            r'(\d+(?:\.\d+)?).*body\s*mass\s*index'
-        ]
-        
-        for pattern in bmi_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['BMI'] = float(match.group(1))
-                break
-        
-        # Age patterns
-        age_patterns = [
-            r'age[:\s]*(\d+)',
-            r'(\d+)\s*years?\s*old',
-            r'(\d+)\s*yo',
-            r'(\d+).*age'
-        ]
-        
-        for pattern in age_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['Age'] = int(match.group(1))
-                break
-        
-        # Insulin patterns
-        insulin_patterns = [
-            r'insulin[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?).*insulin',
-            r'insulin.*?(\d+(?:\.\d+)?)'
-        ]
-        
-        for pattern in insulin_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['Insulin'] = float(match.group(1))
-                break
-        
-        # Skin Thickness patterns
-        skin_patterns = [
-            r'skin\s*thickness[:\s]*(\d+(?:\.\d+)?)',
-            r'triceps[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?).*skin\s*thickness',
-            r'(\d+(?:\.\d+)?).*triceps'
-        ]
-        
-        for pattern in skin_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['SkinThickness'] = float(match.group(1))
-                break
-        
-        # Pregnancies patterns
-        preg_patterns = [
-            r'pregnanc[yi][:\s]*(\d+)',
-            r'(\d+).*pregnanc[yi]',
-            r'gravidity[:\s]*(\d+)',
-            r'(\d+).*gravidity'
-        ]
-        
-        for pattern in preg_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['Pregnancies'] = int(match.group(1))
-                break
-        
-        # Diabetes Pedigree Function patterns
-        dpf_patterns = [
-            r'diabetes\s*pedigree[:\s]*(\d+(?:\.\d+)?)',
-            r'pedigree[:\s]*(\d+(?:\.\d+)?)',
-            r'dpf[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?).*diabetes\s*pedigree',
-            r'(\d+(?:\.\d+)?).*pedigree'
-        ]
-        
-        for pattern in dpf_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['DiabetesPedigreeFunction'] = float(match.group(1))
-                break
-        
-        return extracted_data, text_content
+        return cleaned_data, text_content
         
     except Exception as e:
         st.error(f"Error parsing PDF: {str(e)}")
@@ -279,6 +202,93 @@ def generate_medical_explanation_groq(shap_values, feature_names, user_data):
     except Exception as e:
         return f"Could not generate explanation due to an error. Please ensure your GROQ_API_KEY is set correctly in the .env file. Error: {e}"
 
+# --- Function to Generate Health Coach Plan ---
+def generate_health_plan_groq(user_data, prediction_label, shap_values, feature_names):
+    """
+    Generates a personalized health plan using Groq.
+    """
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        client = Groq(api_key=api_key)
+
+        # Identify top risk factors from SHAP
+        feature_effects = sorted(zip(feature_names, shap_values, user_data.iloc[0]), key=lambda x: x[1], reverse=True)
+        risk_factors = [f"{name} ({val})" for name, shap_val, val in feature_effects if shap_val > 0][:3]
+        
+        risk_str = ", ".join(risk_factors) if risk_factors else "General health maintenance"
+        status = "High Risk" if prediction_label == 1 else "Low Risk"
+
+        prompt = f"""
+        Act as a compassionate and practical health coach.
+        Patient Status: {status} of Diabetes.
+        Key Risk Factors identified: {risk_str}.
+        
+        Provide a personalized, actionable 3-step plan (Diet, Exercise, Lifestyle).
+        Keep it concise (bullet points), motivating, and specific to the risk factors.
+        """
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a health coach."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0.7,
+            max_tokens=300
+        )
+        return completion.choices[0].message.content
+
+    except Exception as e:
+        return f"Could not generate health plan: {e}"
+
+# --- Function to Generate Simulation Plan ---
+def generate_simulation_plan_groq(current_data, target_data, feature_names):
+    """
+    Generates a plan to achieve the target values in the simulator.
+    """
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        client = Groq(api_key=api_key)
+
+        # Identify changes
+        changes = []
+        for feature in feature_names:
+            curr_val = current_data[feature].iloc[0]
+            target_val = target_data[feature].iloc[0]
+            
+            # Check for significant difference (e.g., > 1% change)
+            if abs(curr_val - target_val) > 0.01:
+                changes.append(f"{feature}: {curr_val} -> {target_val}")
+        
+        if not changes:
+            return "No significant changes detected to generate a plan for."
+
+        changes_str = "\n".join(changes)
+
+        prompt = f"""
+        Act as a medical health coach.
+        The patient wants to achieve the following health targets to reduce diabetes risk:
+        {changes_str}
+        
+        Provide a specific, actionable strategy to achieve these numbers.
+        Focus ONLY on the factors that are changing.
+        Give 3-4 concrete steps.
+        """
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a practical health coach."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0.7,
+            max_tokens=400
+        )
+        return completion.choices[0].message.content
+
+    except Exception as e:
+        return f"Could not generate simulation plan: {e}"
+
 # --- Load Model and Scaler ---
 @st.cache_resource
 def load_resources():
@@ -321,28 +331,38 @@ with tab1:
         predict_button = st.button('**Get Prediction**', use_container_width=True, type="primary")
 
     # --- Main Page Layout ---
+    # --- Main Page Layout ---
     if predict_button:
-                # Create a DataFrame with correct feature order
+        # Create a DataFrame with correct feature order
         ordered_inputs = {}
         for feature in feature_names:
             ordered_inputs[feature] = user_inputs[feature]
         user_data = pd.DataFrame([ordered_inputs])
-        
-        # Debug: Show the ordered data
-        # st.write("🔍 **Debug Info:** Feature order in DataFrame:")
-        # st.write(list(user_data.columns))
         
         # Scale data and make predictions
         try:
             user_data_scaled = scaler.transform(user_data)
             prediction_proba = model.predict_proba(user_data_scaled)
             prediction = model.predict(user_data_scaled)
+            
+            # Store in session state
+            st.session_state['prediction_made'] = True
+            st.session_state['user_data'] = user_data
+            st.session_state['user_data_scaled'] = user_data_scaled
+            st.session_state['prediction_proba'] = prediction_proba
+            st.session_state['prediction'] = prediction
+            
         except Exception as e:
             st.error(f"❌ **Error during prediction:** {str(e)}")
-            st.write("🔍 **Debug Info:** DataFrame shape:", user_data.shape)
-            st.write("🔍 **Debug Info:** DataFrame columns:", list(user_data.columns))
-            st.write("🔍 **Debug Info:** Expected features:", feature_names)
             st.stop()
+
+    # Check if prediction has been made (either just now or in previous run)
+    if st.session_state.get('prediction_made'):
+        user_data = st.session_state['user_data']
+        user_data_scaled = st.session_state['user_data_scaled']
+        prediction_proba = st.session_state['prediction_proba']
+        prediction = st.session_state['prediction']
+        
         probability_of_diabetes = prediction_proba[0][1] * 100
 
         # Use columns for a cleaner layout
@@ -375,6 +395,12 @@ with tab1:
                 medical_summary = generate_medical_explanation_groq(shap_values_for_plot[0], feature_names, user_data)
                 st.info(medical_summary)
 
+                # Health Coach Section
+                st.markdown("### 🧘 Personalized Health Coach")
+                with st.spinner("Drafting your action plan..."):
+                    health_plan = generate_health_plan_groq(user_data, prediction[0], shap_values_for_plot[0], feature_names)
+                    st.success(health_plan)
+
         st.markdown("---")
         st.subheader("🔬 Technical Prediction Breakdown (SHAP Plot)")
         st.write("The plot below shows the impact of each feature on the final prediction. Red features increase the risk, while blue features decrease it.")
@@ -392,6 +418,65 @@ with tab1:
         if force_plot_fig is not None:
             st.pyplot(force_plot_fig, bbox_inches='tight', use_container_width=True)
             plt.close(force_plot_fig)
+
+        # --- What-If Simulator ---
+        st.markdown("---")
+        st.subheader("🧪 Clinical Simulation: Impact of Lifestyle Changes")
+        st.markdown("Adjust the sliders below to simulate how changes in modifiable risk factors would affect the patient's risk.")
+
+        with st.expander("🔬 Open Simulator", expanded=True):
+            sim_col1, sim_col2 = st.columns(2)
+            
+            # Modifiable factors
+            with sim_col1:
+                st.markdown("**Modifiable Factors**")
+                # Use session state values as defaults if available, else current user data
+                sim_glucose = st.slider("Target Glucose (mg/dL)", 0, 200, int(user_data['Glucose'][0]), key="sim_glucose")
+                sim_bmi = st.slider("Target BMI (kg/m²)", 0.0, 70.0, float(user_data['BMI'][0]), 0.1, key="sim_bmi")
+                sim_bp = st.slider("Target Blood Pressure (mm Hg)", 0, 130, int(user_data['BloodPressure'][0]), key="sim_bp")
+            
+            with sim_col2:
+                st.markdown("**Other Factors**")
+                sim_insulin = st.slider("Target Insulin (mu U/ml)", 0, 900, int(user_data['Insulin'][0]), key="sim_insulin")
+                sim_skin = st.slider("Target Skin Thickness (mm)", 0, 100, int(user_data['SkinThickness'][0]), key="sim_skin")
+
+            # Create simulated data (copy original and update)
+            sim_data = user_data.copy()
+            sim_data['Glucose'] = sim_glucose
+            sim_data['BMI'] = sim_bmi
+            sim_data['BloodPressure'] = sim_bp
+            sim_data['Insulin'] = sim_insulin
+            sim_data['SkinThickness'] = sim_skin
+
+            # Predict on simulated data
+            sim_data_scaled = scaler.transform(sim_data)
+            sim_prob = model.predict_proba(sim_data_scaled)[0][1] * 100
+            
+            # Calculate improvement
+            risk_reduction = probability_of_diabetes - sim_prob
+            
+            # Display Results
+            st.markdown("### 📉 Simulation Results")
+            res_col1, res_col2, res_col3 = st.columns(3)
+            
+            with res_col1:
+                st.metric("Original Risk", f"{probability_of_diabetes:.2f}%")
+            with res_col2:
+                st.metric("Simulated Risk", f"{sim_prob:.2f}%", delta=f"-{risk_reduction:.2f}%", delta_color="inverse")
+            with res_col3:
+                if sim_prob < 50 and probability_of_diabetes >= 50:
+                    st.success("🎉 Risk dropped to Low!")
+                elif risk_reduction > 0:
+                    st.info("📉 Risk Reduced")
+                else:
+                    st.warning("⚠️ No Improvement")
+            
+            # Generate Plan Button
+            if st.button("📝 How do I achieve this?", type="secondary", use_container_width=True):
+                with st.spinner("Generating strategy to reach these targets..."):
+                    sim_plan = generate_simulation_plan_groq(user_data, sim_data, feature_names)
+                    st.markdown("### 🗺️ Strategy to Reach Targets")
+                    st.success(sim_plan)
 
     else:
         st.info("Please input patient data in the sidebar on the left and click 'Get Prediction' to view the results.")
@@ -509,6 +594,12 @@ with tab2:
                         # Generate medical summary
                         medical_summary = generate_medical_explanation_groq(shap_values_for_plot[0], feature_names, user_data)
                         st.info(medical_summary)
+
+                        # Health Coach Section
+                        st.markdown("### 🧘 Personalized Health Coach")
+                        with st.spinner("Drafting your action plan..."):
+                            health_plan = generate_health_plan_groq(user_data, prediction[0], shap_values_for_plot[0], feature_names)
+                            st.success(health_plan)
                         
                         # SHAP plot
                         st.subheader("🔬 SHAP Analysis")
