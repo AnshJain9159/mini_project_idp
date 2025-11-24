@@ -20,3 +20,7 @@ idp/src/enhanced_evaluate.py
 idp/src/enhanced_main.py
 idp/src/enhanced_train.py
 idp/app copy.py
+idp/visualizations/evaluation/evaluation_results.joblib
+idp/.coverage
+.gitignore
+idp/coverage.xml
