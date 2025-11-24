@@ -1,3 +1,23 @@
+# Core Data Science & ML
+numpy==2.2.6
+pandas==2.3.2
+scikit-learn==1.7.1
+scipy==1.16.1
+
+# Machine Learning Models
+xgboost==3.0.4
+lightgbm==4.3.0
+
+# Class Imbalance Handling
+imbalanced-learn>=0.13.0
+
+# Model Interpretability
+shap==0.48.0
+lime==0.2.0.1
+
+# Visualization
+matplotlib==3.10.5
+seaborn==0.13.2
 altair==5.5.0
 annotated-types==0.7.0
 anyio==4.11.0
