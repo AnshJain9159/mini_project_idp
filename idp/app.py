@@ -13,9 +13,7 @@ import PyPDF2
 import json
 import sys
 from sklearn.calibration import CalibratedClassifierCV
-import uuid
-from mem0 import MemoryClient
-from sklearn.calibration import CalibratedClassifierCV
+
 import uuid
 from mem0 import MemoryClient
 
