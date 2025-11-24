@@ -11,6 +11,7 @@ from groq import Groq
 from dotenv import load_dotenv
 import PyPDF2
 import sys
+from sklearn.calibration import CalibratedClassifierCV
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -362,7 +363,16 @@ with tab1:
             st.subheader("🤖 AI-Generated Medical Summary")
             with st.spinner('Generating professional summary with Groq...'):
                 # Calculate SHAP values
-                explainer = shap.TreeExplainer(model)
+                # Handle CalibratedClassifierCV for SHAP
+                if isinstance(model, CalibratedClassifierCV):
+                    if hasattr(model, 'estimator'):
+                        explainer_model = model.estimator
+                    else:
+                        explainer_model = model.base_estimator
+                else:
+                    explainer_model = model
+                
+                explainer = shap.TreeExplainer(explainer_model)
                 shap_values = explainer.shap_values(user_data_scaled)
                 
                 # Handle SHAP values format for plotting and explanation
@@ -498,7 +508,15 @@ with tab2:
                             st.success(f'**Low Risk of Diabetes** (Probability: {probability_of_diabetes:.2f}%)')
                         
                         # Generate SHAP explanation
-                        explainer = shap.TreeExplainer(model)
+                        if isinstance(model, CalibratedClassifierCV):
+                            if hasattr(model, 'estimator'):
+                                explainer_model = model.estimator
+                            else:
+                                explainer_model = model.base_estimator
+                        else:
+                            explainer_model = model
+
+                        explainer = shap.TreeExplainer(explainer_model)
                         shap_values = explainer.shap_values(user_data_scaled)
                         
                         if isinstance(shap_values, list):
