@@ -6,7 +6,6 @@ import joblib
 import shap
 import matplotlib.pyplot as plt
 import os
-import re
 from groq import Groq
 from dotenv import load_dotenv
 import PyPDF2
@@ -20,7 +19,7 @@ from mem0 import MemoryClient
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 try:
-    from preloader import initialize_preloader
+    from src.preloader import initialize_preloader
 except ImportError:
     def initialize_preloader():
         pass
@@ -83,7 +82,10 @@ def parse_medical_report_pdf(pdf_file):
             response_format={"type": "json_object"}
         )
 
-        extracted_data = json.loads(completion.choices[0].message.content)
+        content = completion.choices[0].message.content
+        if content is None:
+            return {}, text_content
+        extracted_data = json.loads(content)
         
         # Clean up nulls
         cleaned_data = {k: v for k, v in extracted_data.items() if v is not None}
@@ -290,7 +292,10 @@ Return JSON only."""
             response_format={"type": "json_object"}
         )
         
-        data = json.loads(completion.choices[0].message.content)
+        content = completion.choices[0].message.content
+        if content is None:
+            return None, "Error: No content received from API"
+        data = json.loads(content)
         
         # Filter out nulls and identify missing fields
         extracted = {k: v for k, v in data.items() if v is not None}
@@ -302,48 +307,6 @@ Return JSON only."""
         
     except Exception as e:
         return None, f"Error: {str(e)}"
-
-def generate_chat_response(user_message, extracted_data, missing_fields, prediction_result=None):
-    """Generate conversational AI response."""
-    try:
-        api_key = os.getenv("GROQ_API_KEY")
-        client = Groq(api_key=api_key)
-        
-        if prediction_result:
-            # Response after prediction
-            prompt = f"""You are a helpful medical AI assistant. A diabetes risk prediction was just completed.
-
-Prediction: {"High Risk" if prediction_result['prediction'] == 1 else "Low Risk"}
-Probability: {prediction_result['probability']:.1f}%
-
-Provide a brief, professional summary of this result in 2-3 sentences. Be reassuring and solution-focused."""
-        
-        elif missing_fields:
-            # Still gathering data
-            prompt = f"""You are a helpful medical AI assistant collecting patient data.
-
-Extracted so far: {', '.join(extracted_data.keys()) if extracted_data else 'None yet'}
-Still need: {', '.join(missing_fields)}
-
-Ask the user for the missing information in a friendly, conversational way. Keep it brief (1-2 sentences)."""
-        else:
-            # All data collected
-            return "Great! I have all the information needed. Click '🔬 Analyze Risk' below to run the prediction."
-        
-        completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are a helpful, concise medical assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.1-8b-instant",
-            temperature=0.7,
-            max_tokens=150
-        )
-        
-        return completion.choices[0].message.content
-        
-    except Exception as e:
-        return f"I encountered an error: {str(e)}"
 
 # --- Function to Generate Health Coach Plan ---
 def generate_health_plan_groq(user_data, prediction_label, shap_values, feature_names):
@@ -489,7 +452,7 @@ def load_resources():
 model, scaler = load_resources()
 
 # --- UI Modernization & Theme Toggle ---
-st.title('🩺 Interpretable Diabetes Prediction')
+st.title('🩺 Insight MD - Interpretable Diabetes Prediction')
 st.markdown("This application predicts diabetes risk and provides clear, AI-driven explanations for the results.")
 
 # Initialize session state for active tab
@@ -526,7 +489,7 @@ if st.session_state.active_tab == "📊 Manual Input Prediction":
         user_inputs['DiabetesPedigreeFunction'] = st.slider('Diabetes Pedigree Function', 0.0, 2.5, 0.47, 0.01)
         user_inputs['Age'] = st.slider('Age (years)', 1, 120, 29)
         
-        predict_button = st.button('**Get Prediction**', use_container_width=True, type="primary")
+        predict_button = st.button('**Get Prediction**', width='stretch', type="primary")
 
     # --- Main Page Layout ---
     # --- Main Page Layout ---
@@ -582,10 +545,10 @@ if st.session_state.active_tab == "📊 Manual Input Prediction":
                 # Calculate SHAP values
                 # Handle CalibratedClassifierCV for SHAP
                 if isinstance(model, CalibratedClassifierCV):
-                    if hasattr(model, 'estimator'):
-                        explainer_model = model.estimator
+                    if hasattr(model, 'calibrated_classifiers_'):
+                        explainer_model = model.calibrated_classifiers_[0].estimator
                     else:
-                        explainer_model = model.base_estimator
+                        explainer_model = model
                 else:
                     explainer_model = model
                 
@@ -623,7 +586,7 @@ if st.session_state.active_tab == "📊 Manual Input Prediction":
         )
         
         if force_plot_fig is not None:
-            st.pyplot(force_plot_fig, bbox_inches='tight', use_container_width=True)
+            st.pyplot(force_plot_fig, bbox_inches='tight')
             plt.close(force_plot_fig)
 
         # --- What-If Simulator ---
@@ -679,7 +642,7 @@ if st.session_state.active_tab == "📊 Manual Input Prediction":
                     st.warning("⚠️ No Improvement")
             
             # Generate Plan Button
-            if st.button("📝 How do I achieve this?", type="secondary", use_container_width=True):
+            if st.button("📝 How do I achieve this?", type="secondary", width='stretch'):
                 with st.spinner("Generating strategy to reach these targets..."):
                     sim_plan = generate_simulation_plan_groq(user_data, sim_data, feature_names)
                     st.markdown("### 🗺️ Strategy to Reach Targets")
@@ -721,7 +684,7 @@ elif st.session_state.active_tab == "📄 Medical Report Analysis":
             col1, col2 = st.columns(2)
             
             with col1:
-                st.dataframe(extracted_df, use_container_width=True)
+                st.dataframe(extracted_df)
                 
                 # Show missing features
                 missing_features = [f for f in feature_names if f not in extracted_data or extracted_data[f] == "Not found"]
@@ -758,7 +721,7 @@ elif st.session_state.active_tab == "📄 Medical Report Analysis":
                     st.info(analysis)
                 
                 # Prediction button for extracted data
-                if st.button("🚀 Get Prediction from Report Data", type="primary", use_container_width=True):
+                if st.button("🚀 Get Prediction from Report Data", type="primary", width='stretch'):
                     # Check if we have all required data
                     complete_data = all(isinstance(extracted_data.get(f), (int, float)) for f in feature_names)
                     
@@ -791,10 +754,10 @@ elif st.session_state.active_tab == "📄 Medical Report Analysis":
                         
                         # Generate SHAP explanation
                         if isinstance(model, CalibratedClassifierCV):
-                            if hasattr(model, 'estimator'):
-                                explainer_model = model.estimator
+                            if hasattr(model, 'calibrated_classifiers_'):
+                                explainer_model = model.calibrated_classifiers_[0].estimator
                             else:
-                                explainer_model = model.base_estimator
+                                explainer_model = model
                         else:
                             explainer_model = model
 
@@ -828,7 +791,7 @@ elif st.session_state.active_tab == "📄 Medical Report Analysis":
                         )
                         
                         if force_plot_fig is not None:
-                            st.pyplot(force_plot_fig, bbox_inches='tight', use_container_width=True)
+                            st.pyplot(force_plot_fig, bbox_inches='tight')
                             plt.close(force_plot_fig)
                     else:
                         st.error("❌ **Cannot make prediction:** Some required data is missing or invalid.")
@@ -880,6 +843,8 @@ elif st.session_state.active_tab == "💬 AI Chat Assistant":
         # Generate unique patient ID for each new session
         st.session_state.chat_patient_id = str(uuid.uuid4())
     
+    # Use patient_id from session state
+    patient_id = st.session_state.chat_patient_id
     
     # Patient ID and controls
     col1, col2 = st.columns([3, 1])
@@ -957,7 +922,7 @@ elif st.session_state.active_tab == "💬 AI Chat Assistant":
         
         if not missing:
             # All data collected, allow prediction
-            if st.button("🔬 Analyze Risk", type="primary", use_container_width=True):
+            if st.button("🔬 Analyze Risk", type="primary", width='stretch'):
                 # Create DataFrame with correct feature order
                 feature_names = ['Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 
                                 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age']
@@ -1027,7 +992,7 @@ elif st.session_state.active_tab == "💬 AI Chat Assistant":
                     )
                     
                     if force_plot_fig is not None:
-                        st.pyplot(force_plot_fig, bbox_inches='tight', use_container_width=True)
+                        st.pyplot(force_plot_fig, bbox_inches='tight')
                         plt.close(force_plot_fig)
                     
                 except Exception as e:
