@@ -16,8 +16,6 @@ import sys
 from sklearn.calibration import CalibratedClassifierCV
 import uuid
 from mem0 import MemoryClient
-import uuid
-from mem0 import MemoryClient
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
