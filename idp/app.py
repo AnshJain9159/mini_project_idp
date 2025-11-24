@@ -664,11 +664,23 @@ model, scaler = load_resources()
 st.title('🩺 Interpretable Diabetes Prediction')
 st.markdown("This application predicts diabetes risk and provides clear, AI-driven explanations for the results.")
 
-# --- Create Tabs for Different Functionalities ---
-tab1, tab2, tab3 = st.tabs(["📊 Manual Input Prediction", "📄 Medical Report Analysis", "💬 AI Chat Assistant"])
+# Initialize session state for active tab
+if 'active_tab' not in st.session_state:
+    st.session_state.active_tab = "📊 Manual Input Prediction"
+
+# Create tab selector using radio buttons with session state
+st.session_state.active_tab = st.radio(
+    "Select Mode:",
+    ["📊 Manual Input Prediction", "📄 Medical Report Analysis", "💬 AI Chat Assistant"],
+    index=["📊 Manual Input Prediction", "📄 Medical Report Analysis", "💬 AI Chat Assistant"].index(st.session_state.active_tab),
+    horizontal=True,
+    label_visibility="collapsed"
+)
+
+st.markdown("---")
 
 # --- Tab 1: Manual Input Prediction ---
-with tab1:
+if st.session_state.active_tab == "📊 Manual Input Prediction":
     # --- Sidebar for User Input and Theme ---
     with st.sidebar:
         st.header('👨‍⚕️ Patient Medical Data')
@@ -853,70 +865,11 @@ with tab1:
                     st.markdown("### 🗺️ Strategy to Reach Targets")
                     st.success(sim_plan)
 
-        # --- What-If Simulator ---
-        st.markdown("---")
-        st.subheader("🧪 Clinical Simulation: Impact of Lifestyle Changes")
-        st.markdown("Adjust the sliders below to simulate how changes in modifiable risk factors would affect the patient's risk.")
-
-        with st.expander("🔬 Open Simulator", expanded=True):
-            sim_col1, sim_col2 = st.columns(2)
-            
-            # Modifiable factors
-            with sim_col1:
-                st.markdown("**Modifiable Factors**")
-                # Use session state values as defaults if available, else current user data
-                sim_glucose = st.slider("Target Glucose (mg/dL)", 0, 200, int(user_data['Glucose'][0]), key="sim_glucose")
-                sim_bmi = st.slider("Target BMI (kg/m²)", 0.0, 70.0, float(user_data['BMI'][0]), 0.1, key="sim_bmi")
-                sim_bp = st.slider("Target Blood Pressure (mm Hg)", 0, 130, int(user_data['BloodPressure'][0]), key="sim_bp")
-            
-            with sim_col2:
-                st.markdown("**Other Factors**")
-                sim_insulin = st.slider("Target Insulin (mu U/ml)", 0, 900, int(user_data['Insulin'][0]), key="sim_insulin")
-                sim_skin = st.slider("Target Skin Thickness (mm)", 0, 100, int(user_data['SkinThickness'][0]), key="sim_skin")
-
-            # Create simulated data (copy original and update)
-            sim_data = user_data.copy()
-            sim_data['Glucose'] = sim_glucose
-            sim_data['BMI'] = sim_bmi
-            sim_data['BloodPressure'] = sim_bp
-            sim_data['Insulin'] = sim_insulin
-            sim_data['SkinThickness'] = sim_skin
-
-            # Predict on simulated data
-            sim_data_scaled = scaler.transform(sim_data)
-            sim_prob = model.predict_proba(sim_data_scaled)[0][1] * 100
-            
-            # Calculate improvement
-            risk_reduction = probability_of_diabetes - sim_prob
-            
-            # Display Results
-            st.markdown("### 📉 Simulation Results")
-            res_col1, res_col2, res_col3 = st.columns(3)
-            
-            with res_col1:
-                st.metric("Original Risk", f"{probability_of_diabetes:.2f}%")
-            with res_col2:
-                st.metric("Simulated Risk", f"{sim_prob:.2f}%", delta=f"-{risk_reduction:.2f}%", delta_color="inverse")
-            with res_col3:
-                if sim_prob < 50 and probability_of_diabetes >= 50:
-                    st.success("🎉 Risk dropped to Low!")
-                elif risk_reduction > 0:
-                    st.info("📉 Risk Reduced")
-                else:
-                    st.warning("⚠️ No Improvement")
-            
-            # Generate Plan Button
-            if st.button("📝 How do I achieve this?", type="secondary", use_container_width=True):
-                with st.spinner("Generating strategy to reach these targets..."):
-                    sim_plan = generate_simulation_plan_groq(user_data, sim_data, feature_names)
-                    st.markdown("### 🗺️ Strategy to Reach Targets")
-                    st.success(sim_plan)
-
     else:
         st.info("Please input patient data in the sidebar on the left and click 'Get Prediction' to view the results.")
 
 # --- Tab 2: Medical Report Analysis ---
-with tab2:
+elif st.session_state.active_tab == "📄 Medical Report Analysis":
     st.header("📄 Medical Report Analysis")
     st.markdown("Upload a diabetes test report (PDF) to automatically extract data and get AI-powered analysis.")
     
@@ -1042,12 +995,6 @@ with tab2:
                         with st.spinner("Drafting your action plan..."):
                             health_plan = generate_health_plan_groq(user_data, prediction[0], shap_values_for_plot[0], feature_names)
                             st.success(health_plan)
-
-                        # Health Coach Section
-                        st.markdown("### 🧘 Personalized Health Coach")
-                        with st.spinner("Drafting your action plan..."):
-                            health_plan = generate_health_plan_groq(user_data, prediction[0], shap_values_for_plot[0], feature_names)
-                            st.success(health_plan)
                         
                         # SHAP plot
                         st.subheader("🔬 SHAP Analysis")
@@ -1094,7 +1041,7 @@ with tab2:
         """)
 
 # --- Tab 3: AI Chat Assistant ---
-with tab3:
+elif st.session_state.active_tab == "💬 AI Chat Assistant":
     st.header("💬 AI Clinical Chat Assistant")
     st.markdown("Describe your patient in natural language. The AI will extract the necessary data and provide risk analysis.")
     
@@ -1119,11 +1066,10 @@ with tab3:
     with col1:
         st.text_input("🆔 Patient ID (unique per session)", value=st.session_state.chat_patient_id, disabled=True, key="patient_id_display")
     with col2:
-        if st.button("� New Patient"):
+        if st.button("👤 New Patient"):
             st.session_state.chat_messages = []
             st.session_state.chat_patient_data = {}
             st.session_state.chat_patient_id = str(uuid.uuid4())
-            st.rerun()
     
     # Display chat history
     chat_container = st.container()
