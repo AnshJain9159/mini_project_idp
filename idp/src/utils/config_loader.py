@@ -37,7 +37,7 @@ class ConfigLoader:
         if config_path is None:
             # Default configuration path
             config_path = os.path.join(
-                Path(__file__).parent.parent.parent,
+                Path(__file__).resolve().parent.parent.parent,
                 'config',
                 'config.yaml'
             )
