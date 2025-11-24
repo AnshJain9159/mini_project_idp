@@ -10,8 +10,12 @@ import re
 from groq import Groq
 from dotenv import load_dotenv
 import PyPDF2
+import json
 import sys
 from sklearn.calibration import CalibratedClassifierCV
+
+import uuid
+from mem0 import MemoryClient
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -48,121 +52,43 @@ def parse_medical_report_pdf(pdf_file):
         for page in pdf_reader.pages:
             text_content += page.extract_text()
         
-        extracted_data = {}
+        # Initialize Groq client
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            st.error("GROQ_API_KEY not found.")
+            return {}, text_content
+
+        client = Groq(api_key=api_key)
+
+        # Prompt for extraction
+        prompt = f"""
+        Extract the following medical values from the text below. Return ONLY a JSON object with keys:
+        "Pregnancies" (int), "Glucose" (float, mg/dL), "BloodPressure" (int, mm Hg), 
+        "SkinThickness" (float, mm), "Insulin" (float, mu U/ml), "BMI" (float), 
+        "DiabetesPedigreeFunction" (float), "Age" (int).
         
-        # Glucose patterns (mg/dL, mmol/L)
-        glucose_patterns = [
-            r'glucose[:\s]*(\d+(?:\.\d+)?)\s*(?:mg/dL|mg/dl|mg/dl|mmol/L|mmol/l)',
-            r'glucose[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?)\s*(?:mg/dL|mg/dl|mg/dl|mmol/L|mmol/l).*glucose',
-            r'glucose.*?(\d+(?:\.\d+)?)'
-        ]
+        If a value is not found, use null.
         
-        for pattern in glucose_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['Glucose'] = float(match.group(1))
-                break
+        Text:
+        {text_content[:4000]}
+        """
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a medical data extractor. Output JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
+
+        extracted_data = json.loads(completion.choices[0].message.content)
         
-        # Blood Pressure patterns
-        bp_patterns = [
-            r'blood\s*pressure[:\s]*(\d+)/(\d+)',
-            r'bp[:\s]*(\d+)/(\d+)',
-            r'(\d+)/(\d+)\s*(?:mm\s*Hg|mmHg)',
-            r'(\d+)/(\d+).*blood\s*pressure'
-        ]
+        # Clean up nulls
+        cleaned_data = {k: v for k, v in extracted_data.items() if v is not None}
         
-        for pattern in bp_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['BloodPressure'] = int(match.group(1))
-                break
-        
-        # BMI patterns
-        bmi_patterns = [
-            r'bmi[:\s]*(\d+(?:\.\d+)?)',
-            r'body\s*mass\s*index[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?).*bmi',
-            r'(\d+(?:\.\d+)?).*body\s*mass\s*index'
-        ]
-        
-        for pattern in bmi_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['BMI'] = float(match.group(1))
-                break
-        
-        # Age patterns
-        age_patterns = [
-            r'age[:\s]*(\d+)',
-            r'(\d+)\s*years?\s*old',
-            r'(\d+)\s*yo',
-            r'(\d+).*age'
-        ]
-        
-        for pattern in age_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['Age'] = int(match.group(1))
-                break
-        
-        # Insulin patterns
-        insulin_patterns = [
-            r'insulin[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?).*insulin',
-            r'insulin.*?(\d+(?:\.\d+)?)'
-        ]
-        
-        for pattern in insulin_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['Insulin'] = float(match.group(1))
-                break
-        
-        # Skin Thickness patterns
-        skin_patterns = [
-            r'skin\s*thickness[:\s]*(\d+(?:\.\d+)?)',
-            r'triceps[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?).*skin\s*thickness',
-            r'(\d+(?:\.\d+)?).*triceps'
-        ]
-        
-        for pattern in skin_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['SkinThickness'] = float(match.group(1))
-                break
-        
-        # Pregnancies patterns
-        preg_patterns = [
-            r'pregnanc[yi][:\s]*(\d+)',
-            r'(\d+).*pregnanc[yi]',
-            r'gravidity[:\s]*(\d+)',
-            r'(\d+).*gravidity'
-        ]
-        
-        for pattern in preg_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['Pregnancies'] = int(match.group(1))
-                break
-        
-        # Diabetes Pedigree Function patterns
-        dpf_patterns = [
-            r'diabetes\s*pedigree[:\s]*(\d+(?:\.\d+)?)',
-            r'pedigree[:\s]*(\d+(?:\.\d+)?)',
-            r'dpf[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?).*diabetes\s*pedigree',
-            r'(\d+(?:\.\d+)?).*pedigree'
-        ]
-        
-        for pattern in dpf_patterns:
-            match = re.search(pattern, text_content.lower())
-            if match:
-                extracted_data['DiabetesPedigreeFunction'] = float(match.group(1))
-                break
-        
-        return extracted_data, text_content
+        return cleaned_data, text_content
         
     except Exception as e:
         st.error(f"Error parsing PDF: {str(e)}")
@@ -280,6 +206,275 @@ def generate_medical_explanation_groq(shap_values, feature_names, user_data):
     except Exception as e:
         return f"Could not generate explanation due to an error. Please ensure your GROQ_API_KEY is set correctly in the .env file. Error: {e}"
 
+# --- Initialize Mem0 ---
+@st.cache_resource
+def initialize_mem0():
+    """Initialize Mem0 client with API key from environment."""
+    try:
+        # Try to get key from MEMO_API_KEY (user preference) or MEM0_API_KEY (standard)
+        mem0_api_key = os.getenv("MEMO_API_KEY") or os.getenv("MEM0_API_KEY")
+        
+        if not mem0_api_key:
+            return None
+        
+        # Initialize MemoryClient for managed service
+        memory = MemoryClient(api_key=mem0_api_key)
+        return memory
+    except Exception as e:
+        st.warning(f"Mem0 initialization failed: {e}. Memory features will be disabled.")
+        return None
+
+# --- Chat Assistant Functions ---
+def extract_patient_data_from_chat(user_message, user_id, memory_client):
+    """
+    Extract structured patient data from natural language using LLM.
+    Returns dict with extracted values and missing fields.
+    """
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return None, "GROQ_API_KEY not found"
+        
+        client = Groq(api_key=api_key)
+        
+        # Retrieve relevant memories if available
+        # NOTE: Mem0 search disabled due to API issues
+        # Memory is optional for extraction to work
+        context = ""
+        # if memory_client:
+        #     try:
+        #         # Use filters={"user_id": ...} for Mem0 v2
+        #         memories = memory_client.search(user_message, filters={"user_id": user_id}, top_k=3)
+        #         if memories and len(memories) > 0:
+        #             # Handle different response formats
+        #             if isinstance(memories, dict) and 'memories' in memories:
+        #                 memories = memories['memories']
+        #             context = "\n".join([f"- {m.get('memory', m.get('text', ''))}" for m in memories if m])
+        #     except Exception as e:
+        #         # Silently continue without memory context if there's an error
+        #         # Memory is optional, so extraction should still work
+        #         pass
+        
+        context_str = f"Previous context:\n{context}" if context else ""
+        
+        prompt = f"""Extract diabetes risk factors from this message. Return ONLY valid JSON.
+
+Required fields (use null if not mentioned):
+- Pregnancies (int) - If patient is male, ALWAYS set to 0
+- Glucose (float, mg/dL)
+- BloodPressure (int, mm Hg, systolic only)
+- SkinThickness (float, mm)
+- Insulin (float, mu U/ml)
+- BMI (float)
+- DiabetesPedigreeFunction (float, 0.0-2.5)
+- Age (int) - Extract from patterns like "55yo", "55 years old", "age 55"
+
+IMPORTANT:
+- If you see "male" or "man", set Pregnancies to 0
+- Parse age from casual formats (55yo = 55)
+- Be flexible with units and formats
+
+{context_str}
+
+Message: {user_message}
+
+Return JSON only."""
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a medical data extractor. Be smart about parsing casual medical language. Output valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
+        
+        data = json.loads(completion.choices[0].message.content)
+        
+        # Filter out nulls and identify missing fields
+        extracted = {k: v for k, v in data.items() if v is not None}
+        required_fields = ['Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 
+                          'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age']
+        missing = [f for f in required_fields if f not in extracted]
+        
+        return extracted, missing
+        
+    except Exception as e:
+        return None, f"Error: {str(e)}"
+
+def generate_chat_response(user_message, extracted_data, missing_fields, prediction_result=None):
+    """Generate conversational AI response."""
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        client = Groq(api_key=api_key)
+        
+        if prediction_result:
+            # Response after prediction
+            prompt = f"""You are a helpful medical AI assistant. A diabetes risk prediction was just completed.
+
+Prediction: {"High Risk" if prediction_result['prediction'] == 1 else "Low Risk"}
+Probability: {prediction_result['probability']:.1f}%
+
+Provide a brief, professional summary of this result in 2-3 sentences. Be reassuring and solution-focused."""
+        
+        elif missing_fields:
+            # Still gathering data
+            prompt = f"""You are a helpful medical AI assistant collecting patient data.
+
+Extracted so far: {', '.join(extracted_data.keys()) if extracted_data else 'None yet'}
+Still need: {', '.join(missing_fields)}
+
+Ask the user for the missing information in a friendly, conversational way. Keep it brief (1-2 sentences)."""
+        else:
+            # All data collected
+            return "Great! I have all the information needed. Click '🔬 Analyze Risk' below to run the prediction."
+        
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a helpful, concise medical assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0.7,
+            max_tokens=150
+        )
+        
+        return completion.choices[0].message.content
+        
+    except Exception as e:
+        return f"I encountered an error: {str(e)}"
+
+# --- Function to Generate Health Coach Plan ---
+def generate_health_plan_groq(user_data, prediction_label, shap_values, feature_names):
+    """
+    Generates a personalized health plan using Groq.
+    """
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        client = Groq(api_key=api_key)
+
+        # Identify top risk factors from SHAP
+        feature_effects = sorted(zip(feature_names, shap_values, user_data.iloc[0]), key=lambda x: x[1], reverse=True)
+        risk_factors = [f"{name} ({val})" for name, shap_val, val in feature_effects if shap_val > 0][:3]
+        
+        risk_str = ", ".join(risk_factors) if risk_factors else "General health maintenance"
+        status = "High Risk" if prediction_label == 1 else "Low Risk"
+
+        prompt = f"""
+        Act as a compassionate and practical health coach.
+        Patient Status: {status} of Diabetes.
+        Key Risk Factors identified: {risk_str}.
+        
+        Provide a personalized, actionable 3-step plan (Diet, Exercise, Lifestyle).
+        Keep it concise (bullet points), motivating, and specific to the risk factors.
+        """
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a health coach."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0.7,
+            max_tokens=300
+        )
+        return completion.choices[0].message.content
+
+    except Exception as e:
+        return f"Could not generate health plan: {e}"
+
+# --- Function to Generate Simulation Plan ---
+def generate_simulation_plan_groq(current_data, target_data, feature_names):
+    """
+    Generates a plan to achieve the target values in the simulator.
+    """
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        client = Groq(api_key=api_key)
+
+        # Identify changes
+        changes = []
+        for feature in feature_names:
+            curr_val = current_data[feature].iloc[0]
+            target_val = target_data[feature].iloc[0]
+            
+            # Check for significant difference (e.g., > 1% change)
+            if abs(curr_val - target_val) > 0.01:
+                changes.append(f"{feature}: {curr_val} -> {target_val}")
+        
+        if not changes:
+            return "No significant changes detected to generate a plan for."
+
+        changes_str = "\n".join(changes)
+
+        prompt = f"""
+        Act as a medical health coach.
+        The patient wants to achieve the following health targets to reduce diabetes risk:
+        {changes_str}
+        
+        Provide a specific, actionable strategy to achieve these numbers.
+        Focus ONLY on the factors that are changing.
+        Give 3-4 concrete steps.
+        """
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a practical health coach."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0.7,
+            max_tokens=400
+        )
+        return completion.choices[0].message.content
+
+    except Exception as e:
+        return f"Could not generate simulation plan: {e}"
+
+
+def generate_chat_response(user_message, extracted_data, missing_fields, prediction_result=None):
+    """Generate conversational AI response."""
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        client = Groq(api_key=api_key)
+        
+        if prediction_result:
+            # Response after prediction
+            prompt = f"""You are a helpful medical AI assistant. A diabetes risk prediction was just completed.
+
+Prediction: {"High Risk" if prediction_result['prediction'] == 1 else "Low Risk"}
+Probability: {prediction_result['probability']:.1f}%
+
+Provide a brief, professional summary of this result in 2-3 sentences. Be reassuring and solution-focused."""
+        
+        elif missing_fields:
+            # Still gathering data
+            prompt = f"""You are a helpful medical AI assistant collecting patient data.
+
+Extracted so far: {', '.join(extracted_data.keys()) if extracted_data else 'None yet'}
+Still need: {', '.join(missing_fields)}
+
+Ask the user for the missing information in a friendly, conversational way. Keep it brief (1-2 sentences)."""
+        else:
+            # All data collected
+            return "Great! I have all the information needed. Click '🔬 Analyze Risk' below to run the prediction."
+        
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a helpful, concise medical assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0.7,
+            max_tokens=150
+        )
+        
+        return completion.choices[0].message.content
+        
+    except Exception as e:
+        return f"I encountered an error: {str(e)}"
+
 # --- Load Model and Scaler ---
 @st.cache_resource
 def load_resources():
@@ -297,11 +492,23 @@ model, scaler = load_resources()
 st.title('🩺 Interpretable Diabetes Prediction')
 st.markdown("This application predicts diabetes risk and provides clear, AI-driven explanations for the results.")
 
-# --- Create Tabs for Different Functionalities ---
-tab1, tab2 = st.tabs(["📊 Manual Input Prediction", "📄 Medical Report Analysis"])
+# Initialize session state for active tab
+if 'active_tab' not in st.session_state:
+    st.session_state.active_tab = "📊 Manual Input Prediction"
+
+# Create tab selector using radio buttons with session state
+st.session_state.active_tab = st.radio(
+    "Select Mode:",
+    ["📊 Manual Input Prediction", "📄 Medical Report Analysis", "💬 AI Chat Assistant"],
+    index=["📊 Manual Input Prediction", "📄 Medical Report Analysis", "💬 AI Chat Assistant"].index(st.session_state.active_tab),
+    horizontal=True,
+    label_visibility="collapsed"
+)
+
+st.markdown("---")
 
 # --- Tab 1: Manual Input Prediction ---
-with tab1:
+if st.session_state.active_tab == "📊 Manual Input Prediction":
     # --- Sidebar for User Input and Theme ---
     with st.sidebar:
         st.header('👨‍⚕️ Patient Medical Data')
@@ -322,28 +529,38 @@ with tab1:
         predict_button = st.button('**Get Prediction**', use_container_width=True, type="primary")
 
     # --- Main Page Layout ---
+    # --- Main Page Layout ---
     if predict_button:
-                # Create a DataFrame with correct feature order
+        # Create a DataFrame with correct feature order
         ordered_inputs = {}
         for feature in feature_names:
             ordered_inputs[feature] = user_inputs[feature]
         user_data = pd.DataFrame([ordered_inputs])
-        
-        # Debug: Show the ordered data
-        # st.write("🔍 **Debug Info:** Feature order in DataFrame:")
-        # st.write(list(user_data.columns))
         
         # Scale data and make predictions
         try:
             user_data_scaled = scaler.transform(user_data)
             prediction_proba = model.predict_proba(user_data_scaled)
             prediction = model.predict(user_data_scaled)
+            
+            # Store in session state
+            st.session_state['prediction_made'] = True
+            st.session_state['user_data'] = user_data
+            st.session_state['user_data_scaled'] = user_data_scaled
+            st.session_state['prediction_proba'] = prediction_proba
+            st.session_state['prediction'] = prediction
+            
         except Exception as e:
             st.error(f"❌ **Error during prediction:** {str(e)}")
-            st.write("🔍 **Debug Info:** DataFrame shape:", user_data.shape)
-            st.write("🔍 **Debug Info:** DataFrame columns:", list(user_data.columns))
-            st.write("🔍 **Debug Info:** Expected features:", feature_names)
             st.stop()
+
+    # Check if prediction has been made (either just now or in previous run)
+    if st.session_state.get('prediction_made'):
+        user_data = st.session_state['user_data']
+        user_data_scaled = st.session_state['user_data_scaled']
+        prediction_proba = st.session_state['prediction_proba']
+        prediction = st.session_state['prediction']
+        
         probability_of_diabetes = prediction_proba[0][1] * 100
 
         # Use columns for a cleaner layout
@@ -385,6 +602,12 @@ with tab1:
                 medical_summary = generate_medical_explanation_groq(shap_values_for_plot[0], feature_names, user_data)
                 st.info(medical_summary)
 
+                # Health Coach Section
+                st.markdown("### 🧘 Personalized Health Coach")
+                with st.spinner("Drafting your action plan..."):
+                    health_plan = generate_health_plan_groq(user_data, prediction[0], shap_values_for_plot[0], feature_names)
+                    st.success(health_plan)
+
         st.markdown("---")
         st.subheader("🔬 Technical Prediction Breakdown (SHAP Plot)")
         st.write("The plot below shows the impact of each feature on the final prediction. Red features increase the risk, while blue features decrease it.")
@@ -403,11 +626,70 @@ with tab1:
             st.pyplot(force_plot_fig, bbox_inches='tight', use_container_width=True)
             plt.close(force_plot_fig)
 
+        # --- What-If Simulator ---
+        st.markdown("---")
+        st.subheader("🧪 Clinical Simulation: Impact of Lifestyle Changes")
+        st.markdown("Adjust the sliders below to simulate how changes in modifiable risk factors would affect the patient's risk.")
+
+        with st.expander("🔬 Open Simulator", expanded=True):
+            sim_col1, sim_col2 = st.columns(2)
+            
+            # Modifiable factors
+            with sim_col1:
+                st.markdown("**Modifiable Factors**")
+                # Use session state values as defaults if available, else current user data
+                sim_glucose = st.slider("Target Glucose (mg/dL)", 0, 200, int(user_data['Glucose'][0]), key="sim_glucose")
+                sim_bmi = st.slider("Target BMI (kg/m²)", 0.0, 70.0, float(user_data['BMI'][0]), 0.1, key="sim_bmi")
+                sim_bp = st.slider("Target Blood Pressure (mm Hg)", 0, 130, int(user_data['BloodPressure'][0]), key="sim_bp")
+            
+            with sim_col2:
+                st.markdown("**Other Factors**")
+                sim_insulin = st.slider("Target Insulin (mu U/ml)", 0, 900, int(user_data['Insulin'][0]), key="sim_insulin")
+                sim_skin = st.slider("Target Skin Thickness (mm)", 0, 100, int(user_data['SkinThickness'][0]), key="sim_skin")
+
+            # Create simulated data (copy original and update)
+            sim_data = user_data.copy()
+            sim_data['Glucose'] = sim_glucose
+            sim_data['BMI'] = sim_bmi
+            sim_data['BloodPressure'] = sim_bp
+            sim_data['Insulin'] = sim_insulin
+            sim_data['SkinThickness'] = sim_skin
+
+            # Predict on simulated data
+            sim_data_scaled = scaler.transform(sim_data)
+            sim_prob = model.predict_proba(sim_data_scaled)[0][1] * 100
+            
+            # Calculate improvement
+            risk_reduction = probability_of_diabetes - sim_prob
+            
+            # Display Results
+            st.markdown("### 📉 Simulation Results")
+            res_col1, res_col2, res_col3 = st.columns(3)
+            
+            with res_col1:
+                st.metric("Original Risk", f"{probability_of_diabetes:.2f}%")
+            with res_col2:
+                st.metric("Simulated Risk", f"{sim_prob:.2f}%", delta=f"-{risk_reduction:.2f}%", delta_color="inverse")
+            with res_col3:
+                if sim_prob < 50 and probability_of_diabetes >= 50:
+                    st.success("🎉 Risk dropped to Low!")
+                elif risk_reduction > 0:
+                    st.info("📉 Risk Reduced")
+                else:
+                    st.warning("⚠️ No Improvement")
+            
+            # Generate Plan Button
+            if st.button("📝 How do I achieve this?", type="secondary", use_container_width=True):
+                with st.spinner("Generating strategy to reach these targets..."):
+                    sim_plan = generate_simulation_plan_groq(user_data, sim_data, feature_names)
+                    st.markdown("### 🗺️ Strategy to Reach Targets")
+                    st.success(sim_plan)
+
     else:
         st.info("Please input patient data in the sidebar on the left and click 'Get Prediction' to view the results.")
 
 # --- Tab 2: Medical Report Analysis ---
-with tab2:
+elif st.session_state.active_tab == "📄 Medical Report Analysis":
     st.header("📄 Medical Report Analysis")
     st.markdown("Upload a diabetes test report (PDF) to automatically extract data and get AI-powered analysis.")
     
@@ -527,6 +809,12 @@ with tab2:
                         # Generate medical summary
                         medical_summary = generate_medical_explanation_groq(shap_values_for_plot[0], feature_names, user_data)
                         st.info(medical_summary)
+
+                        # Health Coach Section
+                        st.markdown("### 🧘 Personalized Health Coach")
+                        with st.spinner("Drafting your action plan..."):
+                            health_plan = generate_health_plan_groq(user_data, prediction[0], shap_values_for_plot[0], feature_names)
+                            st.success(health_plan)
                         
                         # SHAP plot
                         st.subheader("🔬 SHAP Analysis")
@@ -571,3 +859,178 @@ with tab2:
         
         **Note:** The AI will analyze the extracted data and provide medical insights.
         """)
+
+# --- Tab 3: AI Chat Assistant ---
+elif st.session_state.active_tab == "💬 AI Chat Assistant":
+    st.header("💬 AI Clinical Chat Assistant")
+    st.markdown("Describe your patient in natural language. The AI will extract the necessary data and provide risk analysis.")
+    
+    # Initialize Mem0
+    memory_client = initialize_mem0()
+    
+    if memory_client is None:
+        st.info("💡 **Memory features disabled**: Add `MEM0_API_KEY` to your `.env` file to enable conversation memory across sessions.")
+    
+    # Initialize session state for chat
+    if 'chat_messages' not in st.session_state:
+        st.session_state.chat_messages = []
+    if 'chat_patient_data' not in st.session_state:
+        st.session_state.chat_patient_data = {}
+    if 'chat_patient_id' not in st.session_state:
+        # Generate unique patient ID for each new session
+        st.session_state.chat_patient_id = str(uuid.uuid4())
+    
+    
+    # Patient ID and controls
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.text_input("🆔 Patient ID (unique per session)", value=st.session_state.chat_patient_id, disabled=True, key="patient_id_display")
+    with col2:
+        if st.button("👤 New Patient"):
+            st.session_state.chat_messages = []
+            st.session_state.chat_patient_data = {}
+            st.session_state.chat_patient_id = str(uuid.uuid4())
+    
+    # Display chat history
+    chat_container = st.container()
+    with chat_container:
+        for message in st.session_state.chat_messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+    
+    # Chat input
+    user_input = st.chat_input("Type your message... (e.g., '55yo male, glucose 180, BMI 32')")
+    
+    if user_input:
+        # Add to session state
+        st.session_state.chat_messages.append({"role": "user", "content": user_input})
+        
+        # Extract data and generate response
+        patient_id = st.session_state.chat_patient_id
+        extracted, missing = extract_patient_data_from_chat(user_input, patient_id, memory_client)
+        
+        if extracted:
+            # Update patient data (merge with existing)
+            st.session_state.chat_patient_data.update(extracted)
+            
+            # Generate response
+            response = generate_chat_response(
+                user_input,
+                st.session_state.chat_patient_data,
+                missing
+            )
+            
+            # Save to memory if available
+            if memory_client:
+                try:
+                    memory_client.add(
+                        f"Patient data: {extracted}",
+                        user_id=patient_id
+                    )
+                except:
+                    pass
+            
+            st.session_state.chat_messages.append({"role": "assistant", "content": response})
+        else:
+            st.session_state.chat_messages.append({
+                "role": "assistant",
+                "content": f"I had trouble extracting the data: {missing}"
+            })
+    
+    # Show current data status
+    if st.session_state.chat_patient_data:
+        st.markdown("---")
+        st.subheader("📋 Extracted Patient Data")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            for key, value in list(st.session_state.chat_patient_data.items())[:4]:
+                st.metric(key, value)
+        with col2:
+            for key, value in list(st.session_state.chat_patient_data.items())[4:]:
+                st.metric(key, value)
+        
+        # Check if we have all required fields
+        required_fields = ['Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 
+                          'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age']
+        missing = [f for f in required_fields if f not in st.session_state.chat_patient_data]
+        
+        if not missing:
+            # All data collected, allow prediction
+            if st.button("🔬 Analyze Risk", type="primary", use_container_width=True):
+                # Create DataFrame with correct feature order
+                feature_names = ['Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 
+                                'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age']
+                
+                # Ensure data is in correct order
+                ordered_data = {feature: st.session_state.chat_patient_data[feature] for feature in feature_names}
+                user_data = pd.DataFrame([ordered_data])
+                
+                # Run prediction
+                try:
+                    user_data_scaled = scaler.transform(user_data)
+                    prediction_proba = model.predict_proba(user_data_scaled)
+                    prediction = model.predict(user_data_scaled)
+                    probability = prediction_proba[0][1] * 100
+                    
+                    # Generate response
+                    prediction_result = {
+                        'prediction': prediction[0],
+                        'probability': probability
+                    }
+                    
+                    response = generate_chat_response(
+                        None,
+                        st.session_state.chat_patient_data,
+                        [],
+                        prediction_result
+                    )
+                    
+                    st.session_state.chat_messages.append({
+                        "role": "assistant",
+                        "content": response
+                    })
+                    
+                    # Save to memory
+                    if memory_client:
+                        try:
+                            memory_client.add(
+                                f"Prediction result: {prediction_result}",
+                                user_id=patient_id
+                            )
+                        except:
+                            pass
+                    
+                    # Display result
+                    if prediction[0] == 1:
+                        st.error(f"⚠️ **High Risk of Diabetes** ({probability:.1f}%)")
+                    else:
+                        st.success(f"✅ **Low Risk of Diabetes** ({probability:.1f}%)")
+                    
+                    # SHAP explanation
+                    st.subheader("📊 Risk Factors Breakdown")
+                    explainer = shap.TreeExplainer(model)
+                    shap_values = explainer.shap_values(user_data_scaled)
+                    
+                    if isinstance(shap_values, list):
+                        shap_values_for_plot = shap_values[1]
+                    else:
+                        shap_values_for_plot = shap_values
+                    
+                    expected_value = explainer.expected_value
+                    if isinstance(expected_value, list):
+                        expected_value = expected_value[1]
+                    
+                    force_plot_fig = shap.force_plot(
+                        expected_value, shap_values_for_plot[0], user_data.iloc[0],
+                        matplotlib=True, show=False, text_rotation=10
+                    )
+                    
+                    if force_plot_fig is not None:
+                        st.pyplot(force_plot_fig, bbox_inches='tight', use_container_width=True)
+                        plt.close(force_plot_fig)
+                    
+                except Exception as e:
+                    st.error(f"Error during prediction: {str(e)}")
+        else:
+            st.info(f"ℹ️ Missing: {', '.join(missing)}")
