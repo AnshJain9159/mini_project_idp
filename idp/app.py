@@ -11,6 +11,7 @@ from groq import Groq
 from dotenv import load_dotenv
 import PyPDF2
 import json
+import json
 import sys
 from sklearn.calibration import CalibratedClassifierCV
 import uuid
@@ -42,6 +43,8 @@ def parse_medical_report_pdf(pdf_file):
     """
     Parses a medical report PDF and extracts relevant diabetes-related data using Groq LLM.
     Returns a dictionary with extracted values and the raw text.
+    Parses a medical report PDF and extracts relevant diabetes-related data using Groq LLM.
+    Returns a dictionary with extracted values and the raw text.
     """
     try:
         # Read PDF content
@@ -51,6 +54,43 @@ def parse_medical_report_pdf(pdf_file):
         for page in pdf_reader.pages:
             text_content += page.extract_text()
         
+        # Initialize Groq client
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            st.error("GROQ_API_KEY not found.")
+            return {}, text_content
+
+        client = Groq(api_key=api_key)
+
+        # Prompt for extraction
+        prompt = f"""
+        Extract the following medical values from the text below. Return ONLY a JSON object with keys:
+        "Pregnancies" (int), "Glucose" (float, mg/dL), "BloodPressure" (int, mm Hg), 
+        "SkinThickness" (float, mm), "Insulin" (float, mu U/ml), "BMI" (float), 
+        "DiabetesPedigreeFunction" (float), "Age" (int).
+        
+        If a value is not found, use null.
+        
+        Text:
+        {text_content[:4000]}
+        """
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a medical data extractor. Output JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
+
+        extracted_data = json.loads(completion.choices[0].message.content)
+        
+        # Clean up nulls
+        cleaned_data = {k: v for k, v in extracted_data.items() if v is not None}
+        
+        return cleaned_data, text_content
         # Initialize Groq client
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
@@ -204,6 +244,93 @@ def generate_medical_explanation_groq(shap_values, feature_names, user_data):
 
     except Exception as e:
         return f"Could not generate explanation due to an error. Please ensure your GROQ_API_KEY is set correctly in the .env file. Error: {e}"
+
+# --- Function to Generate Health Coach Plan ---
+def generate_health_plan_groq(user_data, prediction_label, shap_values, feature_names):
+    """
+    Generates a personalized health plan using Groq.
+    """
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        client = Groq(api_key=api_key)
+
+        # Identify top risk factors from SHAP
+        feature_effects = sorted(zip(feature_names, shap_values, user_data.iloc[0]), key=lambda x: x[1], reverse=True)
+        risk_factors = [f"{name} ({val})" for name, shap_val, val in feature_effects if shap_val > 0][:3]
+        
+        risk_str = ", ".join(risk_factors) if risk_factors else "General health maintenance"
+        status = "High Risk" if prediction_label == 1 else "Low Risk"
+
+        prompt = f"""
+        Act as a compassionate and practical health coach.
+        Patient Status: {status} of Diabetes.
+        Key Risk Factors identified: {risk_str}.
+        
+        Provide a personalized, actionable 3-step plan (Diet, Exercise, Lifestyle).
+        Keep it concise (bullet points), motivating, and specific to the risk factors.
+        """
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a health coach."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0.7,
+            max_tokens=300
+        )
+        return completion.choices[0].message.content
+
+    except Exception as e:
+        return f"Could not generate health plan: {e}"
+
+# --- Function to Generate Simulation Plan ---
+def generate_simulation_plan_groq(current_data, target_data, feature_names):
+    """
+    Generates a plan to achieve the target values in the simulator.
+    """
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        client = Groq(api_key=api_key)
+
+        # Identify changes
+        changes = []
+        for feature in feature_names:
+            curr_val = current_data[feature].iloc[0]
+            target_val = target_data[feature].iloc[0]
+            
+            # Check for significant difference (e.g., > 1% change)
+            if abs(curr_val - target_val) > 0.01:
+                changes.append(f"{feature}: {curr_val} -> {target_val}")
+        
+        if not changes:
+            return "No significant changes detected to generate a plan for."
+
+        changes_str = "\n".join(changes)
+
+        prompt = f"""
+        Act as a medical health coach.
+        The patient wants to achieve the following health targets to reduce diabetes risk:
+        {changes_str}
+        
+        Provide a specific, actionable strategy to achieve these numbers.
+        Focus ONLY on the factors that are changing.
+        Give 3-4 concrete steps.
+        """
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a practical health coach."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0.7,
+            max_tokens=400
+        )
+        return completion.choices[0].message.content
+
+    except Exception as e:
+        return f"Could not generate simulation plan: {e}"
 
 # --- Function to Generate Health Coach Plan ---
 def generate_health_plan_groq(user_data, prediction_label, shap_values, feature_names):
