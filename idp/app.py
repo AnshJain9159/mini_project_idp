@@ -89,80 +89,6 @@ def parse_medical_report_pdf(pdf_file):
         cleaned_data = {k: v for k, v in extracted_data.items() if v is not None}
         
         return cleaned_data, text_content
-        # Initialize Groq client
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            st.error("GROQ_API_KEY not found.")
-            return {}, text_content
-
-        client = Groq(api_key=api_key)
-
-        # Prompt for extraction
-        prompt = f"""
-        Extract the following medical values from the text below. Return ONLY a JSON object with keys:
-        "Pregnancies" (int), "Glucose" (float, mg/dL), "BloodPressure" (int, mm Hg), 
-        "SkinThickness" (float, mm), "Insulin" (float, mu U/ml), "BMI" (float), 
-        "DiabetesPedigreeFunction" (float), "Age" (int).
-        
-        If a value is not found, use null.
-        
-        Text:
-        {text_content[:4000]}
-        """
-
-        completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are a medical data extractor. Output JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.1-8b-instant",
-            temperature=0,
-            response_format={"type": "json_object"}
-        )
-
-        extracted_data = json.loads(completion.choices[0].message.content)
-        
-        # Clean up nulls
-        cleaned_data = {k: v for k, v in extracted_data.items() if v is not None}
-        
-        return cleaned_data, text_content
-        # Initialize Groq client
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            st.error("GROQ_API_KEY not found.")
-            return {}, text_content
-
-        client = Groq(api_key=api_key)
-
-        # Prompt for extraction
-        prompt = f"""
-        Extract the following medical values from the text below. Return ONLY a JSON object with keys:
-        "Pregnancies" (int), "Glucose" (float, mg/dL), "BloodPressure" (int, mm Hg), 
-        "SkinThickness" (float, mm), "Insulin" (float, mu U/ml), "BMI" (float), 
-        "DiabetesPedigreeFunction" (float), "Age" (int).
-        
-        If a value is not found, use null.
-        
-        Text:
-        {text_content[:4000]}
-        """
-
-        completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are a medical data extractor. Output JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.1-8b-instant",
-            temperature=0,
-            response_format={"type": "json_object"}
-        )
-
-        extracted_data = json.loads(completion.choices[0].message.content)
-        
-        # Clean up nulls
-        cleaned_data = {k: v for k, v in extracted_data.items() if v is not None}
-        
-        return cleaned_data, text_content
         
     except Exception as e:
         st.error(f"Error parsing PDF: {str(e)}")
@@ -506,102 +432,6 @@ def generate_simulation_plan_groq(current_data, target_data, feature_names):
     except Exception as e:
         return f"Could not generate simulation plan: {e}"
 
-# --- Initialize Mem0 ---
-@st.cache_resource
-def initialize_mem0():
-    """Initialize Mem0 client with API key from environment."""
-    try:
-        # Try to get key from MEMO_API_KEY (user preference) or MEM0_API_KEY (standard)
-        mem0_api_key = os.getenv("MEMO_API_KEY") or os.getenv("MEM0_API_KEY")
-        
-        if not mem0_api_key:
-            return None
-        
-        # Initialize MemoryClient for managed service
-        memory = MemoryClient(api_key=mem0_api_key)
-        return memory
-    except Exception as e:
-        st.warning(f"Mem0 initialization failed: {e}. Memory features will be disabled.")
-        return None
-
-# --- Chat Assistant Functions ---
-def extract_patient_data_from_chat(user_message, user_id, memory_client):
-    """
-    Extract structured patient data from natural language using LLM.
-    Returns dict with extracted values and missing fields.
-    """
-    try:
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            return None, "GROQ_API_KEY not found"
-        
-        client = Groq(api_key=api_key)
-        
-        # Retrieve relevant memories if available
-        # NOTE: Mem0 search disabled due to API issues
-        # Memory is optional for extraction to work
-        context = ""
-        # if memory_client:
-        #     try:
-        #         # Use filters={"user_id": ...} for Mem0 v2
-        #         memories = memory_client.search(user_message, filters={"user_id": user_id}, top_k=3)
-        #         if memories and len(memories) > 0:
-        #             # Handle different response formats
-        #             if isinstance(memories, dict) and 'memories' in memories:
-        #                 memories = memories['memories']
-        #             context = "\n".join([f"- {m.get('memory', m.get('text', ''))}" for m in memories if m])
-        #     except Exception as e:
-        #         # Silently continue without memory context if there's an error
-        #         # Memory is optional, so extraction should still work
-        #         pass
-        
-        context_str = f"Previous context:\n{context}" if context else ""
-        
-        prompt = f"""Extract diabetes risk factors from this message. Return ONLY valid JSON.
-
-Required fields (use null if not mentioned):
-- Pregnancies (int) - If patient is male, ALWAYS set to 0
-- Glucose (float, mg/dL)
-- BloodPressure (int, mm Hg, systolic only)
-- SkinThickness (float, mm)
-- Insulin (float, mu U/ml)
-- BMI (float)
-- DiabetesPedigreeFunction (float, 0.0-2.5)
-- Age (int) - Extract from patterns like "55yo", "55 years old", "age 55"
-
-IMPORTANT:
-- If you see "male" or "man", set Pregnancies to 0
-- Parse age from casual formats (55yo = 55)
-- Be flexible with units and formats
-
-{context_str}
-
-Message: {user_message}
-
-Return JSON only."""
-
-        completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are a medical data extractor. Be smart about parsing casual medical language. Output valid JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.1-8b-instant",
-            temperature=0,
-            response_format={"type": "json_object"}
-        )
-        
-        data = json.loads(completion.choices[0].message.content)
-        
-        # Filter out nulls and identify missing fields
-        extracted = {k: v for k, v in data.items() if v is not None}
-        required_fields = ['Pregnancies', 'Glucose', 'BloodPressure', 'SkinThickness', 
-                          'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age']
-        missing = [f for f in required_fields if f not in extracted]
-        
-        return extracted, missing
-        
-    except Exception as e:
-        return None, f"Error: {str(e)}"
 
 def generate_chat_response(user_message, extracted_data, missing_fields, prediction_result=None):
     """Generate conversational AI response."""
@@ -723,14 +553,6 @@ if st.session_state.active_tab == "📊 Manual Input Prediction":
         except Exception as e:
             st.error(f"❌ **Error during prediction:** {str(e)}")
             st.stop()
-
-    # Check if prediction has been made (either just now or in previous run)
-    if st.session_state.get('prediction_made'):
-        user_data = st.session_state['user_data']
-        user_data_scaled = st.session_state['user_data_scaled']
-        prediction_proba = st.session_state['prediction_proba']
-        prediction = st.session_state['prediction']
-        
 
     # Check if prediction has been made (either just now or in previous run)
     if st.session_state.get('prediction_made'):
